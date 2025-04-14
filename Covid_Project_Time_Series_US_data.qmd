@@ -1,0 +1,205 @@
+---
+title: "Covid Project"
+author: "Jullian Alcantara"
+format: 
+  html:
+    embed-resources: true
+    page-layout: full
+    df-print: paged
+---
+
+
+#  Load Required Libraries
+
+```{r}
+library(pacman)
+p_load(tidyverse, fpp3, COVID19, fabletools, ggplot2)
+```
+
+
+
+# Step A: Load & Prepare COVID-19 Data
+```{r}
+covid_data <- covid19("United States") |>
+  as_tsibble(key = id, index = date)
+```
+
+# Filter and select confirmed cases only
+```{r}
+covid_ts <- covid_data |>
+  filter(!is.na(confirmed)) |>
+  select(date, confirmed) |>
+  arrange(date)
+covid_ts
+```
+
+
+
+#  Step B: Explore Data - STL Decomposition
+
+```{r}
+covid_ts |>
+  model(STL(confirmed ~ season(window = "periodic"))) |>
+  components() |>
+  autoplot() +
+  labs(title = "STL Decomposition of COVID-19 Confirmed Cases in the U.S.")
+```
+
+
+# Step C: Apply Transformation (Stabilize Variance)
+
+```{r}
+covid_ts_trans <- covid_ts |>
+  mutate(sqrt_confirmed = sqrt(confirmed))
+```
+
+# STL Decomposition on Transformed Data
+
+```{r}
+covid_ts_trans |>
+  model(STL(sqrt_confirmed ~ season(window = "periodic"))) |>
+  components() |>
+  autoplot() +
+  labs(title = "STL of Square Root-Transformed COVID-19 Cases")
+```
+
+
+
+# Step D: Check Stationarity (KPSS Test)
+
+
+# Check stationarity before differencing
+
+```{r}
+covid_ts |>
+  features(confirmed, unitroot_kpss)
+```
+
+
+# Apply first-order differencing
+
+```{r}
+covid_diff1 <- covid_ts |>
+  mutate(diff1 = difference(confirmed))
+```
+
+
+```{r}
+covid_diff1 |>
+  autoplot(diff1) +
+  labs(title = "First-Order Differenced Confirmed Cases")
+```
+
+
+# Test stationarity again
+
+```{r}
+covid_diff1 |>
+  features(diff1, unitroot_kpss)
+```
+
+
+# Apply second-order differencing
+
+```{r}
+covid_diff2 <- covid_diff1 |>
+  mutate(diff2 = difference(diff1))
+```
+
+
+```{r}
+covid_diff2 |>
+  autoplot(diff2) +
+  labs(title = "Second-Order Differenced Confirmed Cases")
+```
+
+
+# Final stationarity test
+
+```{r}
+covid_diff2 |>
+  features(diff2, unitroot_kpss)
+```
+
+
+
+# Step E: ARIMA Model Selection
+
+
+# Visualize PACF & ACF for differenced data
+```{r}
+covid_ts |>
+  gg_tsdisplay(difference(confirmed), plot_type = "partial") +
+  labs(title = "Differenced Series ACF/PACF")
+```
+
+
+# Fit Candidate Models
+```{r}
+model1 <- covid_ts |>
+  model(ARIMA(confirmed ~ pdq(3,1,0) + PDQ(0,1,1)))
+
+model2 <- covid_ts |>
+  model(ARIMA(confirmed ~ pdq(3,1,0) + PDQ(1,1,0)))  # Chosen model
+```
+
+
+# Compare Models
+```{r}
+model_compare <- bind_rows(
+  model1 |> glance() |> mutate(Model = "ARIMA(3,1,0)(0,1,1)"),
+  model2 |> glance() |> mutate(Model = "ARIMA(3,1,0)(1,1,0)")
+)
+(model_compare |> select(Model, AICc))
+```
+
+
+
+#  Step F: Residual Diagnostics
+
+
+```{r}
+best_model <- model2
+report(best_model)
+```
+
+
+# Plot residuals: should look like white noise
+
+```{r}
+best_model |>
+  gg_tsresiduals() +
+  labs(title = "Residual Diagnostics for Best ARIMA Model")
+```
+
+
+# Step G: Forecasting (Next 25 Weeks)
+
+
+```{r}
+forecast_result <- best_model |>
+  forecast(h = "25 weeks")
+```
+
+
+# Forecast plot with confidence intervals
+
+```{r}
+forecast_result |>
+  autoplot(covid_ts) +
+  labs(
+    title = "25-Week Forecast of COVID-19 Confirmed Cases",
+    y = "Confirmed Cases",
+    x = "Date"
+  ) +
+  theme_minimal()
+```
+
+
+
+#  Step H: Interpretation
+
+
+ The usefulness of forecasts depends on how quickly the prediction intervals widen, which is influenced by the volatility and predictability of the data. For COVID-19 confirmed cases, which can be highly variable due to factors like changes in testing, public health measures, or new variants, the forecasts typically remain reasonably accurate for about 4 to 8 weeks. 
+ 
+ Beyond this point, the prediction intervals often become too wide to provide actionable insights. Therefore, forecasts for 4 to 8 weeks are likely to be sufficiently accurate and usable, while longer-term forecasts should be interpreted with caution and regularly updated as new data becomes available.
