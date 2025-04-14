@@ -69,7 +69,7 @@ This project forecasts daily confirmed COVID-19 cases in the United States using
 
 ## 📊 Sample Forecast Plot
 
-![forecast_plot](plots/Forecast Output.png)
+![Covid19_US_Timeseries](Forecast-Output.png)
 
 > *Forecast of daily U.S. confirmed COVID-19 cases, with 80% and 95% confidence intervals.*
 
